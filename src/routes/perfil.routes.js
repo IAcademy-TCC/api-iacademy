@@ -1,13 +1,8 @@
 const router = require('express').Router();
 const autenticarToken = require('../middlewares/authMiddleware');
-const {atualizarPerfil} = require('../controllers/perfilController');
+const {atualizarPerfil, obterPerfil} = require('../controllers/perfilController');
 
-router.get('/perfil', autenticarToken, (req, res) => {
-    res.json({
-        message: 'Acesso ao perfil permitido!',
-        usuario: req.user
-    });
-});
+router.get('/perfil', autenticarToken, obterPerfil)
 
 router.patch('/perfil', autenticarToken, atualizarPerfil);
 
