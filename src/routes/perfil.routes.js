@@ -4,8 +4,8 @@ const {atualizarPerfil, obterPerfil} = require('../controllers/perfilController'
 
 
 
-router.get('/perfil', autenticarToken, obterPerfil)
+router.get('/', autenticarToken, obterPerfil)
 
-router.patch('/perfil', autenticarToken, atualizarPerfil);
+router.patch('/attperfil', autenticarToken, atualizarPerfil);
 
 module.exports = router;
