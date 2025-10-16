@@ -30,23 +30,33 @@ async function atualizarPerfil(req, res) {
 }
 
 async function obterPerfil(req, res) {
-    const { id } = req.user;
-  
-    const { data, error } = await supabase
-    .from('perfil')
-    .select(`
-      *,
-      instituicoes ( nome )
-    `)
-    .eq('usuario_id', id)
-    .single();
-  
-    if (error) {
-      return res.status(400).json({ error: 'Erro ao buscar perfil', detalhes: error.message });
-    }
-  
-    return res.json({perfil: data});
-  }
-  
 
-module.exports = { atualizarPerfil, obterPerfil }
+  try {
+    const { id, email, tipo } = req.user;
+
+    const { data: perfil, error } = await supabase
+      .from('perfil')
+      .select(`*,
+        instituicoes (nome)
+        `)
+      .eq('usuario_id', id)
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.json({
+      usuario: { id, email, tipo },
+      perfil,
+    });
+  } catch (err) {
+    console.error("Erro ao buscar perfil:", err);
+    return res.status(500).json({ error: "Erro interno no servidor" });
+  }
+}
+
+module.exports = {
+  atualizarPerfil,
+  obterPerfil,
+};
