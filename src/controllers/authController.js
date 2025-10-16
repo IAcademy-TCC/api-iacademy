@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 
 const register = async (req, res) => {
     const { email, senha, nome, celular,} = req.body;
+    console.log("Body recebido:", req.body); 
 
 
     try {

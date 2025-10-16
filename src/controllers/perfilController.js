@@ -29,4 +29,24 @@ async function atualizarPerfil(req, res) {
     
 }
 
-module.exports = { atualizarPerfil }
+async function obterPerfil(req, res) {
+    const { id } = req.user;
+  
+    const { data, error } = await supabase
+    .from('perfil')
+    .select(`
+      *,
+      instituicoes ( nome )
+    `)
+    .eq('usuario_id', id)
+    .single();
+  
+    if (error) {
+      return res.status(400).json({ error: 'Erro ao buscar perfil', detalhes: error.message });
+    }
+  
+    return res.json({perfil: data});
+  }
+  
+
+module.exports = { atualizarPerfil, obterPerfil }

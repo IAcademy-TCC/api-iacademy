@@ -14,7 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/auth', authRoute);
-app.use('/', perfilRoute);
+app.use('/perfil', perfilRoute);
 app.use('/painel', painelRoutes);
 
 app.listen(PORT, () => {
