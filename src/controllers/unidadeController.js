@@ -14,30 +14,48 @@ async function listarUnidadesPorModulo(req, res) {
   res.json(data);
 }
 
-const supabase = require('../database/db');
-
-// GET unidade específica por ID
 async function obterUnidadePorId(req, res) {
   const { id } = req.params;
+  const { modulo, jornada } = req.query;
 
-  const { data, error } = await supabase
-    .from('unidade')
-    .select('*')
-    .eq('id', id)
-    .single();
+  try {
+    // Busca unidade -> módulo -> trilha -> jornada
+    const { data, error } = await supabase
+      .from('unidade')
+      .select(`
+        *,
+        modulo (
+          id,
+          titulo,
+          trilha (
+            id,
+            jornada (
+              id,
+              titulo
+            )
+          )
+        )
+      `)
+      .eq('id', id)
+      .single();
 
-  if (error) {
-    console.error("Erro ao buscar unidade:", error.message);
-    return res.status(500).json({ error: error.message });
+    if (error) throw error;
+
+    // Se veio a unidade mas ela não pertence ao módulo/jornada esperados
+    if (
+      (modulo && data.modulo?.id != modulo) ||
+      (jornada && data.modulo?.trilha?.jornada?.id != jornada)
+    ) {
+      return res.status(404).json({ error: 'Unidade não pertence à jornada ou módulo informados.' });
+    }
+
+    return res.json(data);
+
+  } catch (err) {
+    console.error('Erro ao buscar unidade:', err);
+    return res.status(500).json({ error: err.message });
   }
-
-  if (!data) {
-    return res.status(404).json({ message: "Unidade não encontrada." });
-  }
-
-  res.json(data);
 }
-
 
 // POST nova unidade
 async function criarUnidade(req, res) {
