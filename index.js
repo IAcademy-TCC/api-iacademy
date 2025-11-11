@@ -23,7 +23,7 @@ app.use('/painel', painelRoutes);
 app.use('/jornada', jornadaRoutes);
 app.use('/trilhas', trilhaRoutes);
 app.use('/modulos', moduloRoutes);
-app.use('/unidades', unidadeRoutes);
+app.use('/unidade', unidadeRoutes);
 
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta: ${PORT}`);
