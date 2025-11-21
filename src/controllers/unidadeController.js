@@ -16,46 +16,78 @@ async function listarUnidadesPorModulo(req, res) {
 
 async function obterUnidadePorId(req, res) {
   const { id } = req.params;
-  const { modulo, jornada } = req.query;
+  const { modulo, trilha, jornada } = req.query;
 
   try {
-    // Busca unidade -> módulo -> trilha -> jornada
+    // Converter os query params para número
+    const moduloId = Number(modulo);
+    const trilhaId = Number(trilha);
+    const jornadaId = Number(jornada);
+    const unidadeId = Number(id);
+
+    console.log("Query Params (convertidos):", { unidadeId, moduloId, trilhaId, jornadaId });
+
+    // Buscar unidade no Supabase incluindo módulo, trilha e jornada
     const { data, error } = await supabase
-      .from('unidade')
+      .from("unidade")
       .select(`
         *,
         modulo (
           id,
-          titulo,
           trilha (
             id,
             jornada (
-              id,
-              titulo
+              id
             )
           )
         )
       `)
-      .eq('id', id)
-      .single();
+      .eq("id", unidadeId)
+      .maybeSingle(); // <- aqui
 
-    if (error) throw error;
+    if (error) {
+      console.error("Supabase error:", error);
+      return res.status(500).json({ error });
+    }
 
-    // Se veio a unidade mas ela não pertence ao módulo/jornada esperados
-    if (
-      (modulo && data.modulo?.id != modulo) ||
-      (jornada && data.modulo?.trilha?.jornada?.id != jornada)
-    ) {
-      return res.status(404).json({ error: 'Unidade não pertence à jornada ou módulo informados.' });
+    if (!data) {
+      return res.status(404).json({ error: "Unidade não encontrada." });
+    }
+
+    console.log("Unidade encontrada:", data);
+
+    // ----------------------------
+    // 🔍 VALIDAÇÕES
+    // ----------------------------
+
+    // módulo
+    if (!data.modulo || data.modulo.id !== moduloId) {
+      return res
+        .status(400)
+        .json({ error: "Unidade não pertence ao módulo informado." });
+    }
+
+    // trilha
+    if (!data.modulo.trilha || data.modulo.trilha.id !== trilhaId) {
+      return res
+        .status(400)
+        .json({ error: "Unidade não pertence à trilha informada." });
+    }
+
+    // jornada
+    if (!data.modulo.trilha.jornada || data.modulo.trilha.jornada.id !== jornadaId) {
+      return res
+        .status(400)
+        .json({ error: "Unidade não pertence à jornada informada." });
     }
 
     return res.json(data);
-
-  } catch (err) {
-    console.error('Erro ao buscar unidade:', err);
-    return res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error("Erro inesperado ao buscar unidade:", error);
+    return res.status(500).json({ error: "Erro ao buscar unidade" });
   }
 }
+
 
 // POST nova unidade
 async function criarUnidade(req, res) {
