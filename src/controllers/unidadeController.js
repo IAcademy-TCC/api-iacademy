@@ -15,79 +15,77 @@ async function listarUnidadesPorModulo(req, res) {
 }
 
 async function obterUnidadePorId(req, res) {
-  const { id } = req.params;
-  const { modulo, trilha, jornada } = req.query;
+  const { id } = req.params;
+  const { modulo, trilha, jornada } = req.query;
 
-  try {
-    // Converter os query params para número
-    const moduloId = Number(modulo);
-    const trilhaId = Number(trilha);
-    const jornadaId = Number(jornada);
-    const unidadeId = Number(id);
+  try {
+    // 1. Conversão e Validação de IDs
+    const unidadeId = Number(id);
+    const moduloId = Number(modulo);
+    const trilhaId = Number(trilha);
+    const jornadaId = Number(jornada);
 
-    console.log("Query Params (convertidos):", { unidadeId, moduloId, trilhaId, jornadaId });
+    // --- PRIMEIRA CONSULTA: Busca a Unidade e a Hierarquia ---
+    const { data: unidadeData, error: unidadeError } = await supabase
+      .from("unidade")
+      .select(`
+        *,
+        modulo!inner ( 
+          id,
+          trilha!inner (
+            id,
+            jornada!inner (
+              id
+            )
+          )
+        )
+      `)
+      .eq("id", unidadeId)
+      .eq("modulo.id", moduloId)
+      .eq("modulo.trilha.id", trilhaId)
+      .eq("modulo.trilha.jornada.id", jornadaId)
+      .maybeSingle(); 
 
-    // Buscar unidade no Supabase incluindo módulo, trilha e jornada
-    const { data, error } = await supabase
-      .from("unidade")
-      .select(`
-        *,
-        modulo (
-          id,
-          trilha (
-            id,
-            jornada (
-              id
-            )
-          )
-        )
-      `)
-      .eq("id", unidadeId)
-      .maybeSingle(); // <- aqui
+    if (unidadeError) {
+      console.error("Supabase Error (Unidade):", unidadeError);
+      return res.status(500).json({ error: unidadeError.message });
+    }
+    if (!unidadeData) {
+      return res.status(404).json({ error: "Unidade não encontrada ou caminho hierárquico inválido." });
+    }
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return res.status(500).json({ error });
-    }
+    // --- SEGUNDA CONSULTA: Busca os Exercícios Separadamente ---
+    const { data: exerciciosData, error: exerciciosError } = await supabase
+      .from("exercicio")
+      .select("*") // Seleciona todos os campos do exercício
+      .eq("unidade_id", unidadeId) // Filtra pelo ID da unidade
+      .order("id", { ascending: true }); // Ordenação opcional
 
-    if (!data) {
-      return res.status(404).json({ error: "Unidade não encontrada." });
-    }
-
-    console.log("Unidade encontrada:", data);
-
-    // ----------------------------
-    // 🔍 VALIDAÇÕES
-    // ----------------------------
-
-    // módulo
-    if (!data.modulo || data.modulo.id !== moduloId) {
-      return res
-        .status(400)
-        .json({ error: "Unidade não pertence ao módulo informado." });
-    }
-
-    // trilha
-    if (!data.modulo.trilha || data.modulo.trilha.id !== trilhaId) {
-      return res
-        .status(400)
-        .json({ error: "Unidade não pertence à trilha informada." });
-    }
-
-    // jornada
-    if (!data.modulo.trilha.jornada || data.modulo.trilha.jornada.id !== jornadaId) {
-      return res
-        .status(400)
-        .json({ error: "Unidade não pertence à jornada informada." });
-    }
-
-    return res.json(data);
-  } catch (error) {
-    console.error("Erro inesperado ao buscar unidade:", error);
-    return res.status(500).json({ error: "Erro ao buscar unidade" });
-  }
+if (exerciciosError) {
+  console.error("Supabase Error (Exercícios):", exerciciosError);
+  // Se der erro, vamos retornar a mensagem para debug no console
+  exerciciosData = []; 
 }
 
+// ⚠️ ADICIONE ESTE LOG (no console do servidor Express)
+console.log("DADOS EXERCÍCIOS BRUTOS:", exerciciosData);
+
+// Combinação e Retorno
+const dadosCompletos = {
+  ...unidadeData,
+  exercicio: exerciciosData || [] 
+};
+
+console.log("UNIDADE RESPONSE (Completo):", dadosCompletos);
+
+return res.json(dadosCompletos);
+
+
+ } catch (error) {
+ console.error("Erro inesperado ao buscar unidade:", error);
+ return res.status(500).json({ error: "Erro interno ao buscar unidade" });
+}
+}
 
 // POST nova unidade
 async function criarUnidade(req, res) {

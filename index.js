@@ -9,6 +9,7 @@ const jornadaRoutes = require('./src/routes/jornadas.routes')
 const trilhaRoutes = require('./src/routes/trilha.routes')
 const moduloRoutes = require('./src/routes/modulo.routes')
 const unidadeRoutes = require('./src/routes/unidade.routes')
+const exercicioRoutes = require('./src/routes/exercicio.routes')
 
 dotenv.config();
 const app = express();
@@ -24,6 +25,7 @@ app.use('/jornada', jornadaRoutes);
 app.use('/trilhas', trilhaRoutes);
 app.use('/modulos', moduloRoutes);
 app.use('/unidade', unidadeRoutes);
+app.use('/exercicio', exercicioRoutes);
 
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta: ${PORT}`);
