@@ -74,26 +74,26 @@ async function adicionarPontos(req, res) {
   const userId = req.user.id;
   const { exercicioId, acertou } = req.body;
 
-  if (!tentativas[userId]) {
-    tentativas[userId] = {};
-  }
-  if (!tentativas[userId][exercicioId]) {
-    tentativas[userId][exercicioId] = 0;
-  }
+  // Tabela em memória para tentativas
+  if (!tentativas[userId]) tentativas[userId] = {};
+  if (!tentativas[userId][exercicioId]) tentativas[userId][exercicioId] = 0;
 
-  // Soma tentativa atual
+  // Soma tentativa
   tentativas[userId][exercicioId] += 1;
   const tentativaAtual = tentativas[userId][exercicioId];
 
   let pontos = 0;
 
+  // ============================
+  // SE ACERTOU → CALCULA PONTOS
+  // ============================
   if (acertou) {
     if (tentativaAtual === 1) pontos = 100;
     else if (tentativaAtual === 2) pontos = 75;
     else if (tentativaAtual === 3) pontos = 50;
     else pontos = 25;
 
-    // 1 - Buscar pontuação atual
+    // 1. Buscar pontuação atual do perfil
     const { data: perfil, error: erroBusca } = await supabase
       .from("perfil")
       .select("pontuacao")
@@ -107,7 +107,7 @@ async function adicionarPontos(req, res) {
 
     const novaPontuacao = (perfil?.pontuacao || 0) + pontos;
 
-    // 2 - Atualizar com o novo valor
+    // 2. Atualizar pontuação no perfil
     const { error: erroUpdate } = await supabase
       .from("perfil")
       .update({ pontuacao: novaPontuacao })
@@ -118,15 +118,53 @@ async function adicionarPontos(req, res) {
       return res.status(500).json({ error: "Erro ao atualizar pontuação" });
     }
 
-    // Resetar tentativas após o acerto
+    // ==========================================
+    // 3. Registrar exercício como CONCLUÍDO (✔)
+    // ==========================================
+    const { error: erroUpsert } = await supabase
+      .from("exercicio_usuario")
+      .upsert({
+        usuario_id: userId,
+        exercicio_id: exercicioId,
+        concluido: true,
+        tentativas: tentativaAtual,
+        pontuacao_ganha: pontos,
+        atualizado_em: new Date(),
+      });
+
+    if (erroUpsert) {
+      console.error("Erro ao registrar conclusão:", erroUpsert);
+      return res.status(500).json({ error: "Erro ao registrar conclusão" });
+    }
+
+    // Resetar tentativas após fechamento do exercício
     tentativas[userId][exercicioId] = 0;
 
-    return res.json({ success: true, pontosGanho: pontos });
+    return res.json({
+      success: true,
+      pontosGanho: pontos,
+      concluido: true,
+    });
   }
 
-  // Se errou, apenas registra tentativa
-  return res.json({ success: true, pontosGanho: 0 });
+  // ============================
+  // ERROU → apenas salva tentativa
+  // ============================
+  await supabase.from("exercicio_usuario").upsert({
+    usuario_id: userId,
+    exercicio_id: exercicioId,
+    concluido: false,
+    tentativas: tentativaAtual,
+    atualizado_em: new Date(),
+  });
+
+  return res.json({
+    success: true,
+    pontosGanho: 0,
+    concluido: false,
+  });
 }
+
 
 module.exports = {
   atualizarPerfil,
