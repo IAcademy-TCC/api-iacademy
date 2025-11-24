@@ -10,6 +10,8 @@ const trilhaRoutes = require('./src/routes/trilha.routes')
 const moduloRoutes = require('./src/routes/modulo.routes')
 const unidadeRoutes = require('./src/routes/unidade.routes')
 const exercicioRoutes = require('./src/routes/exercicio.routes')
+const rankingRoutes = require('./src/routes/ranking.routes')
+const iaRoutes = require('./src/routes/ia.routes');
 
 dotenv.config();
 const app = express();
@@ -26,6 +28,8 @@ app.use('/trilhas', trilhaRoutes);
 app.use('/modulos', moduloRoutes);
 app.use('/unidade', unidadeRoutes);
 app.use('/exercicio', exercicioRoutes);
+app.use('/ia', iaRoutes);
+app.use('/ranking', rankingRoutes)
 
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta: ${PORT}`);

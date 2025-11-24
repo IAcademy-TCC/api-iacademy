@@ -3,8 +3,13 @@ const supabase = require('../database/db');
 async function obterExercicioPorId(req, res) {
   const { id_unidade, id_exercicio } = req.params;
 
+  // vem da query string
+  const personalizada = req.query.personalizada === "true";
+
+  const tabela = personalizada ? "exercicio_personalizado" : "exercicio";
+
   const { data, error } = await supabase
-    .from('exercicio')
+    .from(tabela)
     .select('*')
     .eq('id', id_exercicio)
     .eq('unidade_id', id_unidade)

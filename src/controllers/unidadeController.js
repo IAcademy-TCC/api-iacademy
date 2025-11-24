@@ -15,76 +15,101 @@ async function listarUnidadesPorModulo(req, res) {
 }
 
 async function obterUnidadePorId(req, res) {
-  const { id } = req.params;
-  const { modulo, trilha, jornada } = req.query;
+  const { id } = req.params;
+  const { modulo, trilha, jornada, personalizada } = req.query;
 
-  try {
-    // 1. Conversão e Validação de IDs
-    const unidadeId = Number(id);
-    const moduloId = Number(modulo);
-    const trilhaId = Number(trilha);
-    const jornadaId = Number(jornada);
+  try {
+    const unidadeId = Number(id);
+    const moduloId = Number(modulo);
+    const trilhaId = Number(trilha);
+    const jornadaId = Number(jornada);
 
-    // --- PRIMEIRA CONSULTA: Busca a Unidade e a Hierarquia ---
-    const { data: unidadeData, error: unidadeError } = await supabase
-      .from("unidade")
-      .select(`
-        *,
-        modulo!inner ( 
-          id,
-          trilha!inner (
-            id,
-            jornada!inner (
-              id
-            )
-          )
-        )
-      `)
-      .eq("id", unidadeId)
-      .eq("modulo.id", moduloId)
-      .eq("modulo.trilha.id", trilhaId)
-      .eq("modulo.trilha.jornada.id", jornadaId)
-      .maybeSingle(); 
+    // --- SE A TRILHA FOR PERSONALIZADA ---
+    if (personalizada === "true") {
+      console.log("Buscando UNIDADE PERSONALIZADA...");
 
-    if (unidadeError) {
-      console.error("Supabase Error (Unidade):", unidadeError);
-      return res.status(500).json({ error: unidadeError.message });
-    }
-    if (!unidadeData) {
-      return res.status(404).json({ error: "Unidade não encontrada ou caminho hierárquico inválido." });
-    }
+      // 1️⃣ Buscar unidade personalizada
+      const { data: unidadeData, error: unidadeError } = await supabase
+        .from("unidade_personalizada")
+        .select(`*, modulo_personalizado!inner ( id, trilha_personalizada!inner ( id ) )`)
+        .eq("id", unidadeId)
+        .eq("modulo_personalizado.id", moduloId)
+        .eq("modulo_personalizado.trilha_personalizada.id", trilhaId)
+        .maybeSingle();
 
-    // --- SEGUNDA CONSULTA: Busca os Exercícios Separadamente ---
-    const { data: exerciciosData, error: exerciciosError } = await supabase
-      .from("exercicio")
-      .select("*") // Seleciona todos os campos do exercício
-      .eq("unidade_id", unidadeId) // Filtra pelo ID da unidade
-      .order("id", { ascending: true }); // Ordenação opcional
+      if (unidadeError) {
+        console.error(unidadeError);
+        return res.status(500).json({ error: unidadeError.message });
+      }
 
-if (exerciciosError) {
-  console.error("Supabase Error (Exercícios):", exerciciosError);
-  // Se der erro, vamos retornar a mensagem para debug no console
-  exerciciosData = []; 
-}
+      if (!unidadeData) {
+        return res.status(404).json({ error: "Unidade personalizada não encontrada." });
+      }
 
-// ⚠️ ADICIONE ESTE LOG (no console do servidor Express)
-console.log("DADOS EXERCÍCIOS BRUTOS:", exerciciosData);
+      // 2️⃣ Buscar exercícios personalizados
+      const { data: exerciciosData, error: exerciciosError } = await supabase
+        .from("exercicio_personalizado")
+        .select("*")
+        .eq("unidade_id", unidadeId)
+        .order("id", { ascending: true });
 
-// Combinação e Retorno
-const dadosCompletos = {
-  ...unidadeData,
-  exercicio: exerciciosData || [] 
-};
+      if (exerciciosError) {
+        console.error(exerciciosError);
+      }
 
-console.log("UNIDADE RESPONSE (Completo):", dadosCompletos);
+      const retorno = {
+        ...unidadeData,
+        exercicio: exerciciosData || []
+      };
 
-return res.json(dadosCompletos);
+      console.log("UNIDADE PERSONALIZADA:", retorno);
+      return res.json(retorno);
+    }
 
+    // --- SE NÃO FOR PERSONALIZADA → LÓGICA ANTIGA ---
+    console.log("Buscando UNIDADE PADRÃO...");
 
- } catch (error) {
- console.error("Erro inesperado ao buscar unidade:", error);
- return res.status(500).json({ error: "Erro interno ao buscar unidade" });
-}
+    const { data: unidadeData, error: unidadeError } = await supabase
+      .from("unidade")
+      .select(`
+        *,
+        modulo!inner ( 
+          id,
+          trilha!inner (
+            id,
+            jornada!inner ( id )
+          )
+        )
+      `)
+      .eq("id", unidadeId)
+      .eq("modulo.id", moduloId)
+      .eq("modulo.trilha.id", trilhaId)
+      .eq("modulo.trilha.jornada.id", jornadaId)
+      .maybeSingle();
+
+    if (unidadeError) {
+      console.error(unidadeError);
+      return res.status(500).json({ error: unidadeError.message });
+    }
+
+    if (!unidadeData) {
+      return res.status(404).json({ error: "Unidade não encontrada (padrão)." });
+    }
+
+    const { data: exerciciosData } = await supabase
+      .from("exercicio")
+      .select("*")
+      .eq("unidade_id", unidadeId);
+
+    return res.json({
+      ...unidadeData,
+      exercicio: exerciciosData || []
+    });
+
+  } catch (error) {
+    console.error("Erro inesperado ao buscar unidade:", error);
+    return res.status(500).json({ error: "Erro interno ao buscar unidade." });
+  }
 }
 
 // POST nova unidade
