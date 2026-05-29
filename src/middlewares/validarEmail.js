@@ -1,7 +1,7 @@
 function validarEmailInstitucional(req, res, next){
     const { email } = req.body;
 
-    const regex = /^[a-zA-Z0-9._%+-]+@(fatec\.sp\.gov\.br|etec\.sp\.gov\.br)$/;
+    const regex = /^[a-zA-Z0-9._%+-]+@(fatec\.sp\.gov\.br|etec\.sp\.gov\.br|uscsonline\.com\.br)$/;
 
     if(!regex.test(email)){
         return res.status(400).json({

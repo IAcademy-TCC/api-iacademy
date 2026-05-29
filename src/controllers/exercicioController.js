@@ -23,27 +23,47 @@ async function obterExercicioPorId(req, res) {
 }
 
 async function statusExercicio(req, res) {
-  const userId = req.user.id;
-  const exercicioId = req.params.id_exercicio;
+  try {
 
-  const { data, error } = await supabase
-    .from("exercicio_usuario")
-    .select("pontuacao_ganha, criado_em")
-    .eq("usuario_id", userId)
-    .eq("exercicio_id", exercicioId)
-    .single();
+    if (!req.user) {
+      return res.status(401).json({
+        error: "Usuário não autenticado"
+      });
+    }
 
-  if (error && error.code !== "PGRST116") {
-    return res.status(500).json({ error: "Erro ao buscar status" });
+    const userId = req.user.id;
+    const exercicioId = req.params.id_exercicio;
+
+    const { data, error } = await supabase
+      .from("exercicio_usuario")
+      .select("pontuacao_ganha, atualizado_em")
+      .eq("usuario_id", userId)
+      .eq("exercicio_id", exercicioId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Erro Supabase:", error);
+
+      return res.status(500).json({
+        error: "Erro ao buscar status"
+      });
+    }
+
+    return res.json({
+      concluido: !!data,
+      pontos: data?.pontuacao_ganha || 0,
+      data: data?.criado_em || null,
+    });
+
+  } catch (err) {
+
+    console.error("Erro interno:", err);
+
+    return res.status(500).json({
+      error: "Erro interno"
+    });
   }
-
-  return res.json({
-    concluido: !!data,
-    pontos: data?.pontuacao_ganha || 0,
-    data: data?.criado_em || null,
-  });
 }
-
 module.exports = {
   obterExercicioPorId,
   statusExercicio,

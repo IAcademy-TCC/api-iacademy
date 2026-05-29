@@ -1,81 +1,13 @@
+const OpenAI = require("openai");
 const supabase = require("../database/db");
-const { jsonrepair } = require("jsonrepair"); // ✅ ADICIONADO
+const { jsonrepair } = require("jsonrepair");
 
 // ======================
-// CONFIGURAÇÃO GEMINI
+// CONFIGURAÇÃO OPENAI
 // ======================
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
-
-// ======================
-// SCHEMA
-// ======================
-const GEMINI_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    titulo: { type: "STRING", minLength: 1, maxLength: 40 },
-    descricao: { type: "STRING", maxLength: 255 },
-    modulos: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          titulo: { type: "STRING", maxLength: 255 },
-          descricao: { type: "STRING", maxLength: 255 },
-          ordem: { type: "INTEGER" },
-          unidades: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                titulo: { type: "STRING", maxLength: 255 },
-                descricao: { type: "STRING", maxLength: 255 },
-                ordem: { type: "INTEGER" },
-                exercicios: {
-                  type: "ARRAY",
-                  items: {
-                    type: "OBJECT",
-                    properties: {
-                      enunciado: { type: "STRING" },
-                      alternativas: { type: "ARRAY", items: { type: "STRING" } },
-                      resposta_correta: { type: "STRING" },
-                      nivel: { type: "INTEGER" },
-                      pontos: { type: "INTEGER" },
-                    },
-                    required: ["enunciado", "alternativas", "resposta_correta"],
-                  },
-                },
-              },
-              required: ["titulo", "descricao"],
-            },
-          },
-        },
-        required: ["titulo", "descricao"],
-      },
-    },
-  },
-  required: ["titulo", "descricao", "modulos"],
-};
-
-// ======================
-// BACKOFF
-// ======================
-async function fetchWithBackoff(url, options, maxRetries = 5) {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.status !== 429) return response;
-    } catch (_) {}
-
-    const delay = Math.pow(2, attempt) * 800 + Math.random() * 400;
-
-    if (attempt < maxRetries - 1)
-      await new Promise((r) => setTimeout(r, delay));
-  }
-
-  throw new Error("Falha ao chamar API após múltiplas tentativas.");
-}
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // =========================================================
 // ================== CRIAR TRILHA =========================
@@ -83,30 +15,51 @@ async function fetchWithBackoff(url, options, maxRetries = 5) {
 async function criarTrilhaPersonalizada(req, res) {
   try {
     const userId = req.user?.id || req.user?.user?.id || req.user?.sub;
-    if (!userId)
-      return res.status(401).json({ error: "Usuário não autenticado" });
 
-    if (!GEMINI_API_KEY)
-      return res
-        .status(500)
-        .json({ error: "GEMINI_API_KEY não configurada." });
+    if (!userId) {
+      return res.status(401).json({
+        error: "Usuário não autenticado",
+      });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({
+        error: "OPENAI_API_KEY não configurada",
+      });
+    }
 
     const ERROS_MINIMOS = 1;
     const MAX_MODULOS = 5;
 
-    // 1 — Exercícios pendentes
+    // =====================================================
+    // EXERCÍCIOS PENDENTES
+    // =====================================================
+
     const { data: naoConcluidos, error: errPend } = await supabase
       .from("exercicio_usuario")
       .select("exercicio_id")
       .eq("usuario_id", userId)
       .eq("concluido", false);
 
-    if (errPend) return res.status(500).json({ error: "Erro ao buscar pendentes" });
-    if (!naoConcluidos?.length)
-      return res.json({ gerar: false, motivo: "Nenhum exercício pendente." });
+    if (errPend) {
+      return res.status(500).json({
+        error: "Erro ao buscar exercícios pendentes",
+      });
+    }
 
-    // 2 — Buscar detalhes
+    if (!naoConcluidos?.length) {
+      return res.json({
+        gerar: false,
+        motivo: "Nenhum exercício pendente.",
+      });
+    }
+
+    // =====================================================
+    // BUSCAR EXERCÍCIOS
+    // =====================================================
+
     const erros = [];
+
     for (const item of naoConcluidos) {
       const { data: ex } = await supabase
         .from("exercicio")
@@ -124,92 +77,137 @@ async function criarTrilhaPersonalizada(req, res) {
       });
     }
 
-    if (erros.length < ERROS_MINIMOS)
+    if (erros.length < ERROS_MINIMOS) {
       return res.json({
         gerar: false,
         motivo: `Somente ${erros.length} erros. Mínimo: ${ERROS_MINIMOS}`,
       });
+    }
 
-    // 3 — Exercícios concluídos
+    // =====================================================
+    // EXERCÍCIOS CONCLUÍDOS
+    // =====================================================
+
     const { data: concluidos } = await supabase
       .from("exercicio_usuario")
-      .select("exercicio_id, pontuacao_ganha");
+      .select("exercicio_id, pontuacao_ganha")
+      .eq("usuario_id", userId);
 
-    // 4 — Prompt
+    // =====================================================
+    // PROMPT
+    // =====================================================
+
     const prompt = `
 Gere uma trilha pedagógica em JSON.
-Regras obrigatórias:
-- Nada fora do JSON.
+
+REGRAS OBRIGATÓRIAS:
+- Retorne APENAS JSON válido.
+- Sem markdown.
+- Sem comentários.
 - Sem emojis.
-- Siga exatamente o schema.
 - Títulos até 40 caracteres.
-- Módulos: 2 a ${MAX_MODULOS}.
-- Cada módulo: no mínimo 2 unidades.
-- Cada unidade: 2 a 4 exercícios.
+- 2 até ${MAX_MODULOS} módulos.
+- Cada módulo deve ter pelo menos 2 unidades.
+- Cada unidade deve ter entre 2 e 4 exercícios.
 
-Erros:
-${erros.map((e) => `ID ${e.id}: ${e.erro}`).slice(0, 20).join("\n")}
+ESTRUTURA:
+{
+  "titulo": "",
+  "descricao": "",
+  "modulos": [
+    {
+      "titulo": "",
+      "descricao": "",
+      "ordem": 1,
+      "unidades": [
+        {
+          "titulo": "",
+          "descricao": "",
+          "ordem": 1,
+          "exercicios": [
+            {
+              "enunciado": "",
+              "alternativas": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ],
+              "resposta_correta": "A",
+              "nivel": 1,
+              "pontos": 10
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
 
-Concluídos:
+ERROS:
+${erros
+  .map((e) => `ID ${e.id}: ${e.erro}`)
+  .slice(0, 20)
+  .join("\n")}
+
+CONCLUÍDOS:
 ${(concluidos || [])
   .slice(0, 20)
   .map((e) => `ID ${e.exercicio_id}`)
   .join("\n")}
 `;
 
-    // 5 — Chamada ao Gemini
-    const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: GEMINI_SCHEMA,
-        maxOutputTokens: 2000,
+    // =====================================================
+    // OPENAI
+    // =====================================================
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Você é um gerador de trilhas pedagógicas em JSON válido.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.7,
+      response_format: {
+        type: "json_object",
       },
-    };
+    });
 
-    const response = await fetchWithBackoff(
-      `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    let text = completion.choices[0].message.content;
 
-    const result = await response.json();
-
-    let text =
-      result.candidates?.[0]?.content?.parts?.[0]?.text ||
-      JSON.stringify(result);
-
-    // 6 — CLEANER + JSON REPAIR (VERSÃO FINAL)
-    const cleaned = text
-      .trim()
-      .replace(/^[^\{]*/s, "")
-      .replace(/[^\}]*$/s, "");
+    // =====================================================
+    // JSON REPAIR
+    // =====================================================
 
     let trilhaJSON;
 
     try {
-      trilhaJSON = JSON.parse(cleaned);
+      trilhaJSON = JSON.parse(text);
     } catch (err1) {
       try {
-        const repaired = jsonrepair(cleaned);
+        const repaired = jsonrepair(text);
         trilhaJSON = JSON.parse(repaired);
       } catch (err2) {
-        console.error("===== JSON BRUTO =====");
+        console.error("===== JSON INVÁLIDO =====");
         console.error(text);
 
-        console.error("===== APÓS CLEANER =====");
-        console.error(cleaned);
-
-        return res
-          .status(500)
-          .json({ error: "IA retornou JSON inválido mesmo após reparo." });
+        return res.status(500).json({
+          error: "IA retornou JSON inválido",
+        });
       }
     }
 
-    // 7 — Salvar trilha
+    // =====================================================
+    // SALVAR TRILHA
+    // =====================================================
+
     const { data: trilha } = await supabase
       .from("trilha_personalizada")
       .insert({
@@ -222,7 +220,10 @@ ${(concluidos || [])
 
     const trilhaId = trilha.id;
 
-    // Módulos → Unidades → Exercícios
+    // =====================================================
+    // MÓDULOS
+    // =====================================================
+
     for (const [i, modulo] of trilhaJSON.modulos.entries()) {
       const { data: mod } = await supabase
         .from("modulo_personalizado")
@@ -235,6 +236,10 @@ ${(concluidos || [])
         .select()
         .single();
 
+      // ===================================================
+      // UNIDADES
+      // ===================================================
+
       for (const [j, unidade] of modulo.unidades.entries()) {
         const { data: und } = await supabase
           .from("unidade_personalizada")
@@ -246,6 +251,10 @@ ${(concluidos || [])
           })
           .select()
           .single();
+
+        // =================================================
+        // EXERCÍCIOS
+        // =================================================
 
         for (const [k, ex] of unidade.exercicios.entries()) {
           await supabase.from("exercicio_personalizado").insert({
@@ -261,11 +270,18 @@ ${(concluidos || [])
       }
     }
 
-    // marcar trilha ativa
+    // =====================================================
+    // DESATIVAR ANTIGAS
+    // =====================================================
+
     await supabase
       .from("trilha_personalizada_status")
       .update({ ativa: false })
       .eq("usuario_id", userId);
+
+    // =====================================================
+    // ATIVAR NOVA
+    // =====================================================
 
     await supabase.from("trilha_personalizada_status").insert({
       usuario_id: userId,
@@ -278,9 +294,13 @@ ${(concluidos || [])
       trilha_id: trilhaId,
       trilha: trilhaJSON,
     });
+
   } catch (err) {
     console.error("Erro criarTrilhaPersonalizada:", err);
-    res.status(500).json({ error: "Erro interno ao gerar trilha" });
+
+    return res.status(500).json({
+      error: "Erro interno ao gerar trilha",
+    });
   }
 }
 
@@ -291,10 +311,14 @@ ${(concluidos || [])
 async function obterTrilhaAtiva(req, res) {
   try {
     const userId = req.user?.id || req.user?.user?.id || req.user?.sub;
-    if (!userId)
-      return res.status(401).json({ error: "Usuário não autenticado" });
 
-    // pegar trilha ativa
+    if (!userId) {
+      return res.status(401).json({
+        error: "Usuário não autenticado",
+      });
+    }
+
+    // buscar trilha ativa
     const { data: status } = await supabase
       .from("trilha_personalizada_status")
       .select("trilha_id")
@@ -302,9 +326,11 @@ async function obterTrilhaAtiva(req, res) {
       .eq("ativa", true)
       .maybeSingle();
 
-    if (!status) return res.json(null);
+    if (!status) {
+      return res.json(null);
+    }
 
-    // pegar trilha com módulos personalizados → unidades → exercícios
+    // buscar trilha completa
     const { data: trilha, error } = await supabase
       .from("trilha_personalizada")
       .select(`
@@ -316,12 +342,12 @@ async function obterTrilhaAtiva(req, res) {
           titulo,
           descricao,
           ordem,
-          unidade_personalizada:unidade_personalizada(
+          unidade_personalizada(
             id,
             titulo,
             descricao,
             ordem,
-            exercicio_personalizado:exercicio_personalizado(
+            exercicio_personalizado(
               id,
               enunciado,
               alternativas,
@@ -337,19 +363,25 @@ async function obterTrilhaAtiva(req, res) {
       .maybeSingle();
 
     if (error) {
-      console.error("Erro ao buscar trilha personalizada:", error);
-      return res.status(500).json({ error: "Erro ao buscar trilha" });
+      console.error("Erro ao buscar trilha:", error);
+
+      return res.status(500).json({
+        error: "Erro ao buscar trilha ativa",
+      });
     }
 
     return res.json(trilha);
+
   } catch (err) {
     console.error("Erro obterTrilhaAtiva:", err);
-    res.status(500).json({ error: "Erro interno do servidor" });
+
+    return res.status(500).json({
+      error: "Erro interno",
+    });
   }
 }
 
-
 module.exports = {
   criarTrilhaPersonalizada,
-  obterTrilhaAtiva,
+  obterTrilhaAtiva
 };
